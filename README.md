@@ -1,8 +1,7 @@
 # 批量忽略管理器 (Batch Ignore Manager)
+[English README](https://github.com/zhaolu8294/comfyui-batch-ignore-node/blob/main/README_ENG.md)
 
 一个用于 [ComfyUI](https://github.com/comfyanonymous/ComfyUI) 的高级节点管理插件，提供图形化界面批量控制节点的启用/忽略状态。
-
-English README https://github.com/zhaolu8294/comfyui-batch-ignore-node/blob/main/README_ENG.md
 
 ## 功能特性
 
