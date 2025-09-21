@@ -86,11 +86,13 @@ app.registerExtension({
                 // 存储管理的节点列表（内部使用）
                 this.managedNodes = [];
                 this.nodeWidgets = new Map(); // 存储每个节点对应的widget
+                this.isCollapsed = false; // 折叠状态标志
+                this.originalWidgets = null; // 存储原始widgets数组
                 
                 // 创建主控开关
-                const masterSwitch = this.addWidget("toggle", "🎛️ 全部控制 [YES]", true, function(value) {
+                const masterSwitch = this.addWidget("toggle", "🎛 全部控制 [YES]", true, function(value) {
                     // 更新显示文本
-                    this.name = value ? "🎛️ 全部控制 [YES]" : "🎛️ 全部控制 [NO]";
+                    this.name = value ? "🎛 全部控制 [YES]" : "🎛 全部控制 [NO]";
                     
                     // value为true时表示YES(不忽略)，false时表示NO(忽略)
                     const bypass = !value;
@@ -110,6 +112,35 @@ app.registerExtension({
                     
                     app.graph.setDirtyCanvas(true);
                 });
+                this.masterSwitch = masterSwitch; // 存储主控开关引用
+                
+                // 折叠菜单方法
+                this.collapseMenu = function() {
+                    if (this.isCollapsed) return; // 已经折叠
+                    this.isCollapsed = true;
+                    // 备份当前widgets（用于恢复）
+                    this.originalWidgets = this.widgets.slice();
+                    // 只保留主控开关
+                    this.widgets = [this.masterSwitch];
+                    // 添加展开按钮
+                    this.addWidget("button", "📂 展开菜单", null, function() {
+                        self.expandMenu();
+                    });
+                    // 设置高度为仅对应两项菜单的高度
+                    this.size = [320, 60];
+                    this.updateSize();
+                    console.log("菜单已折叠");
+                };
+                
+                // 展开菜单方法
+                this.expandMenu = function() {
+                    if (!this.isCollapsed) return; // 已经展开
+                    this.isCollapsed = false;
+                    // 恢复原始widgets
+                    this.widgets = this.originalWidgets.slice();
+                    this.updateSize();
+                    console.log("菜单已展开");
+                };
                 
                 // 更新全局控制状态的方法
                 this.updateMasterSwitch = function() {
@@ -131,13 +162,13 @@ app.registerExtension({
                     if (masterWidget) {
                         if (allYes) {
                             masterWidget.value = true;
-                            masterWidget.name = "🎛️ 全部控制 [YES]";
+                            masterWidget.name = "🎛 全部控制 [YES]";
                         } else if (allNo) {
                             masterWidget.value = false;
-                            masterWidget.name = "🎛️ 全部控制 [NO]";
+                            masterWidget.name = "🎛 全部控制 [NO]";
                         } else {
                             // 混合状态 - 显示为中间状态
-                            masterWidget.name = "🎛️ 全部控制 [混合]";
+                            masterWidget.name = "🎛 全部控制 [混合]";
                         }
                     }
                 };
@@ -213,7 +244,7 @@ app.registerExtension({
                         }
                     );
                     
-                    const deleteButton = this.addWidget("button", `🗑️ 移除`, null, function() {
+                    const deleteButton = this.addWidget("button", `🗑 移除`, null, function() {
                         self.removeNode(nodeId);
                     });
                     
@@ -324,6 +355,14 @@ app.registerExtension({
                         console.log("已清空管理列表并恢复所有节点");
                     });
                     
+                    // 添加折叠菜单按钮
+                    this.addWidget("button", "📌 折叠菜单", null, function() {
+                        self.collapseMenu();
+                    });
+                    
+                    // 存储原始widgets引用（用于折叠/展开恢复）
+                    this.originalWidgets = this.widgets.slice();
+                    
                     // 更新大小
                     this.updateSize();
                 }, 100);
@@ -343,6 +382,7 @@ app.registerExtension({
                         onSerialize.apply(this, arguments);
                     }
                     o.managedNodes = this.managedNodes;
+                    o.isCollapsed = this.isCollapsed; // 保存折叠状态
                 };
                 
                 const onConfigure = this.onConfigure;
@@ -360,10 +400,16 @@ app.registerExtension({
                             this.refreshAllNodeStates();
                         }, 200);
                     }
+                    // 恢复折叠状态
+                    if (o.isCollapsed) {
+                        setTimeout(() => {
+                            this.collapseMenu();
+                        }, 300);
+                    }
                 };
             };
         }
     }
 });
 
-console.log("批量忽略管理器已加载 - 逻辑优化版 v4.0");
+console.log("批量忽略管理器已加载 - 带折叠菜单功能 v4.1");
