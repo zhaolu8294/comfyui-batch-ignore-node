@@ -78,7 +78,7 @@ Python side provides the basic node framework:
 
 - Current version: v4.0 (logic-optimized)
 - Compatibility: latest ComfyUI
-- Update date: 2024-01-20
+- Update date: 2025-09-21
 
 ## Troubleshooting
 
@@ -116,4 +116,5 @@ If you have questions or suggestions, please provide:
 1. ComfyUI version
 2. Plugin version
 3. Browser console error messages
+
 4. Steps to reproduce the issue
