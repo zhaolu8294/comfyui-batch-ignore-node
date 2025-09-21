@@ -374,8 +374,8 @@ app.registerExtension({
                 }, 100);
                 
                 // 自定义节点外观
-                this.color = "#323e4f";
-                this.bgcolor = "#1e2936";
+                this.color = "#FF2A2A";
+                this.bgcolor = "#FF2A2A";
                 this.title = "📋 批量忽略管理器";
                 
                 // 设置最小宽度
