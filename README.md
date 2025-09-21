@@ -97,3 +97,21 @@ Python 端提供基本的节点框架：
 ## 开发信息
 
 ### 文件结构
+batch_ignore_manager/
+├── init.py # 插件入口文件
+├── batch_ignore_node.py # 节点类定义
+└── web/
+└── extensions.js # 前端逻辑实现
+### 扩展API
+插件使用 ComfyUI 的标准扩展机制：
+- `app.registerExtension()` 注册扩展
+- `beforeRegisterNodeDef` 修改节点行为
+- 使用标准 widget 系统创建界面控件
+
+## 支持与反馈
+如有问题或建议，请提供以下信息：
+1. ComfyUI 版本
+2. 插件版本
+3. 浏览器控制台错误信息
+4. 重现问题的具体步骤
+
