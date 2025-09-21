@@ -127,20 +127,26 @@ app.registerExtension({
                         self.expandMenu();
                     });
                     // 设置高度为仅对应两项菜单的高度
-                    this.size = [320, 60];
+                     this.size = [210, 80];
                     this.updateSize();
                     console.log("菜单已折叠");
                 };
                 
                 // 展开菜单方法
-                this.expandMenu = function() {
+               this.expandMenu = function() {
                     if (!this.isCollapsed) return; // 已经展开
-                    this.isCollapsed = false;
-                    // 恢复原始widgets
-                    this.widgets = this.originalWidgets.slice();
-                    this.updateSize();
-                    console.log("菜单已展开");
-                };
+                         this.isCollapsed = false;
+                                                             // 恢复原始widgets
+                        this.widgets = this.originalWidgets.slice();
+                        this.updateSize(); // 立即更新大小
+    
+               // 延迟一点以确保高度刷新
+                      setTimeout(() => {
+                                 this.updateSize();
+                       }, 0);
+    
+    console.log("菜单已展开");
+};
                 
                 // 更新全局控制状态的方法
                 this.updateMasterSwitch = function() {
