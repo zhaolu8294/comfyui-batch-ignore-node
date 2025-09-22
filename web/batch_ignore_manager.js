@@ -87,7 +87,10 @@ app.registerExtension({
                 this.managedNodes = [];
                 this.nodeWidgets = new Map(); // 存储每个节点对应的widget
                 this.isCollapsed = false; // 折叠状态标志
-                this.originalWidgets = null; // 存储原始widgets数组
+                this.fixedWidgets = []; // 存储固定的widgets（主控开关等）
+                this.expandButton = null; // 展开按钮引用
+                this.collapsedSize = [210, 80]; // 折叠时的尺寸
+                this.expandedSize = null; // 展开时的尺寸
                 
                 // 创建主控开关
                 const masterSwitch = this.addWidget("toggle", "🎛 全部控制 [YES]", true, function(value) {
@@ -114,39 +117,81 @@ app.registerExtension({
                 });
                 this.masterSwitch = masterSwitch; // 存储主控开关引用
                 
+                // 更新节点大小的方法
+                this.updateSize = function(forceSize = null) {
+                    if (forceSize) {
+                        this.size = forceSize.slice(); // 使用副本
+                    } else if (this.isCollapsed) {
+                        this.size = this.collapsedSize.slice(); // 使用副本
+                    } else {
+                        // 展开状态，计算实际需要的大小
+                        this.computeSize();
+                        this.expandedSize = this.size.slice(); // 保存展开时的尺寸
+                    }
+                    this.setDirtyCanvas(true, true);
+                };
+                
+                // 重建widgets的方法
+                this.rebuildWidgets = function() {
+                    // 清空当前widgets
+                    this.widgets = [];
+                    
+                    // 添加主控开关
+                    this.widgets.push(this.masterSwitch);
+                    
+                    if (this.isCollapsed) {
+                        // 折叠状态：只显示主控开关和展开按钮
+                        if (!this.expandButton) {
+                            this.expandButton = this.addWidget("button", "📂 展开菜单", null, function() {
+                                self.expandMenu();
+                            });
+                        }
+                        this.widgets.push(this.expandButton);
+                        
+                        // 设置折叠时的尺寸
+                        this.updateSize(this.collapsedSize);
+                    } else {
+                        // 展开状态：显示所有widgets
+                        this.expandButton = null;
+                        
+                        // 添加所有节点的控制widgets
+                        this.managedNodes.forEach(nodeId => {
+                            const widgetData = this.nodeWidgets.get(nodeId);
+                            if (widgetData) {
+                                this.widgets.push(widgetData.toggle);
+                                this.widgets.push(widgetData.button);
+                            }
+                        });
+                        
+                        // 添加所有固定的控制按钮
+                        this.fixedWidgets.forEach(widget => {
+                            this.widgets.push(widget);
+                        });
+                        
+                        // 计算展开时的尺寸
+                        this.updateSize();
+                    }
+                };
+                
                 // 折叠菜单方法
                 this.collapseMenu = function() {
                     if (this.isCollapsed) return; // 已经折叠
+                    
+                    // 保存当前展开时的尺寸
+                    this.expandedSize = this.size.slice();
+                    
                     this.isCollapsed = true;
-                    // 备份当前widgets（用于恢复）
-                    this.originalWidgets = this.widgets.slice();
-                    // 只保留主控开关
-                    this.widgets = [this.masterSwitch];
-                    // 添加展开按钮
-                    this.addWidget("button", "📂 展开菜单", null, function() {
-                        self.expandMenu();
-                    });
-                    // 设置高度为仅对应两项菜单的高度
-                     this.size = [210, 80];
-                    this.updateSize();
+                    this.rebuildWidgets();
                     console.log("菜单已折叠");
                 };
                 
                 // 展开菜单方法
-               this.expandMenu = function() {
+                this.expandMenu = function() {
                     if (!this.isCollapsed) return; // 已经展开
-                         this.isCollapsed = false;
-                                                             // 恢复原始widgets
-                        this.widgets = this.originalWidgets.slice();
-                        this.updateSize(); // 立即更新大小
-    
-               // 延迟一点以确保高度刷新
-                      setTimeout(() => {
-                                 this.updateSize();
-                       }, 0);
-    
-    console.log("菜单已展开");
-};
+                    this.isCollapsed = false;
+                    this.rebuildWidgets();
+                    console.log("菜单已展开");
+                };
                 
                 // 更新全局控制状态的方法
                 this.updateMasterSwitch = function() {
@@ -164,17 +209,16 @@ app.registerExtension({
                     });
                     
                     // 根据子节点状态更新主控开关
-                    const masterWidget = self.widgets.find(w => w.name && w.name.includes("全部控制"));
-                    if (masterWidget) {
+                    if (this.masterSwitch) {
                         if (allYes) {
-                            masterWidget.value = true;
-                            masterWidget.name = "🎛 全部控制 [YES]";
+                            this.masterSwitch.value = true;
+                            this.masterSwitch.name = "🎛 全部控制 [YES]";
                         } else if (allNo) {
-                            masterWidget.value = false;
-                            masterWidget.name = "🎛 全部控制 [NO]";
+                            this.masterSwitch.value = false;
+                            this.masterSwitch.name = "🎛 全部控制 [NO]";
                         } else {
                             // 混合状态 - 显示为中间状态
-                            masterWidget.name = "🎛 全部控制 [混合]";
+                            this.masterSwitch.name = "🎛 全部控制 [混合]";
                         }
                     }
                 };
@@ -184,11 +228,11 @@ app.registerExtension({
                     nodeIds.forEach(nodeId => {
                         if (!this.managedNodes.includes(nodeId)) {
                             this.managedNodes.push(nodeId);
-                            this.addNodeWidget(nodeId);
+                            this.createNodeWidget(nodeId);
                         }
                     });
                     this.updateMasterSwitch();
-                    this.updateSize();
+                    this.rebuildWidgets();
                 };
                 
                 // 移除节点的方法
@@ -197,44 +241,28 @@ app.registerExtension({
                     if (index > -1) {
                         this.managedNodes.splice(index, 1);
                         
-                        // 移除对应的widget
-                        const widgetData = this.nodeWidgets.get(nodeId);
-                        if (widgetData) {
-                            // 移除toggle widget
-                            if (widgetData.toggle) {
-                                const toggleIndex = this.widgets.indexOf(widgetData.toggle);
-                                if (toggleIndex > -1) {
-                                    this.widgets.splice(toggleIndex, 1);
-                                }
-                            }
-                            // 移除button widget
-                            if (widgetData.button) {
-                                const buttonIndex = this.widgets.indexOf(widgetData.button);
-                                if (buttonIndex > -1) {
-                                    this.widgets.splice(buttonIndex, 1);
-                                }
-                            }
-                            this.nodeWidgets.delete(nodeId);
-                        }
+                        // 移除对应的widget数据
+                        this.nodeWidgets.delete(nodeId);
                         
                         // 恢复节点状态（设为不忽略）
                         setNodeBypassState(nodeId, false);
                         this.updateMasterSwitch();
-                        this.updateSize();
+                        this.rebuildWidgets();
                     }
                 };
                 
-                // 为单个节点添加控制widget
-                this.addNodeWidget = function(nodeId) {
+                // 创建单个节点的控制widget（不直接添加到widgets数组）
+                this.createNodeWidget = function(nodeId) {
                     const nodeName = getNodeName(nodeId);
                     const isBypassed = getNodeBypassState(nodeId);
                     const isActive = !isBypassed;
                     
-                    // 创建toggle - true表示YES(不忽略)，false表示NO(忽略)
-                    const toggleWidget = this.addWidget("toggle", 
-                        isActive ? `✅ ${nodeName} [YES]` : `⭕ ${nodeName} [NO]`, 
-                        isActive, 
-                        function(value) {
+                    // 创建toggle widget
+                    const toggleWidget = {
+                        type: "toggle",
+                        name: isActive ? `✅ ${nodeName} [YES]` : `⭕ ${nodeName} [NO]`,
+                        value: isActive,
+                        callback: function(value) {
                             // value为true时表示YES(不忽略)，false时表示NO(忽略)
                             const bypass = !value;
                             setNodeBypassState(nodeId, bypass);
@@ -248,23 +276,31 @@ app.registerExtension({
                             
                             app.graph.setDirtyCanvas(true);
                         }
-                    );
+                    };
                     
-                    const deleteButton = this.addWidget("button", `🗑 移除`, null, function() {
-                        self.removeNode(nodeId);
-                    });
+                    const deleteButton = {
+                        type: "button",
+                        name: `🗑 移除`,
+                        callback: function() {
+                            self.removeNode(nodeId);
+                        }
+                    };
+                    
+                    // 转换为真正的widget对象
+                    const realToggle = this.addWidget(toggleWidget.type, toggleWidget.name, toggleWidget.value, toggleWidget.callback);
+                    const realButton = this.addWidget(deleteButton.type, deleteButton.name, null, deleteButton.callback);
+                    
+                    // 立即从widgets数组中移除（稍后通过rebuildWidgets添加）
+                    const toggleIndex = this.widgets.indexOf(realToggle);
+                    const buttonIndex = this.widgets.indexOf(realButton);
+                    if (toggleIndex > -1) this.widgets.splice(toggleIndex, 1);
+                    if (buttonIndex > -1) this.widgets.splice(buttonIndex, 1);
                     
                     // 存储widget引用
                     this.nodeWidgets.set(nodeId, {
-                        toggle: toggleWidget,
-                        button: deleteButton
+                        toggle: realToggle,
+                        button: realButton
                     });
-                };
-                
-                // 更新节点大小
-                this.updateSize = function() {
-                    this.computeSize();
-                    this.setDirtyCanvas(true, true);
                 };
                 
                 // 刷新所有节点状态
@@ -286,10 +322,10 @@ app.registerExtension({
                     self.updateSize();
                 };
                 
-                // 添加控制按钮
+                // 初始化固定按钮
                 setTimeout(() => {
-                    // 添加操作按钮组
-                    this.addWidget("button", "➕ 添加选中节点", null, function() {
+                    // 创建所有固定的控制按钮
+                    const addSelectedButton = this.addWidget("button", "➕ 添加选中节点", null, function() {
                         const selectedIds = getSelectedNodeIds();
                         if (selectedIds.length === 0) {
                             console.log("请先选中要管理的节点");
@@ -308,12 +344,12 @@ app.registerExtension({
                         console.log(`已添加 ${filteredIds.length} 个节点到管理器`);
                     });
                     
-                    this.addWidget("button", "🔄 刷新状态", null, function() {
+                    const refreshButton = this.addWidget("button", "🔄 刷新状态", null, function() {
                         self.refreshAllNodeStates();
                         console.log("节点状态已刷新");
                     });
                     
-                    this.addWidget("button", "✅ 全部启用", null, function() {
+                    const enableAllButton = this.addWidget("button", "✅ 全部启用", null, function() {
                         // 启用所有节点
                         self.managedNodes.forEach(nodeId => {
                             setNodeBypassState(nodeId, false);
@@ -322,7 +358,7 @@ app.registerExtension({
                         console.log("已启用所有节点");
                     });
                     
-                    this.addWidget("button", "⭕ 全部忽略", null, function() {
+                    const bypassAllButton = this.addWidget("button", "⭕ 全部忽略", null, function() {
                         // 忽略所有节点
                         self.managedNodes.forEach(nodeId => {
                             setNodeBypassState(nodeId, true);
@@ -331,46 +367,44 @@ app.registerExtension({
                         console.log("已忽略所有节点");
                     });
                     
-                    this.addWidget("button", "🧹 清空列表", null, function() {
+                    const clearButton = this.addWidget("button", "🧹 清空列表", null, function() {
                         // 恢复所有节点状态为启用
                         self.managedNodes.forEach(nodeId => {
                             setNodeBypassState(nodeId, false);
                         });
                         
-                        // 清除所有节点widget
-                        self.nodeWidgets.forEach((widgetData, nodeId) => {
-                            if (widgetData.toggle) {
-                                const toggleIndex = self.widgets.indexOf(widgetData.toggle);
-                                if (toggleIndex > -1) {
-                                    self.widgets.splice(toggleIndex, 1);
-                                }
-                            }
-                            if (widgetData.button) {
-                                const buttonIndex = self.widgets.indexOf(widgetData.button);
-                                if (buttonIndex > -1) {
-                                    self.widgets.splice(buttonIndex, 1);
-                                }
-                            }
-                        });
-                        
                         self.managedNodes = [];
                         self.nodeWidgets.clear();
                         self.updateMasterSwitch();
-                        self.updateSize();
+                        self.rebuildWidgets();
                         
                         console.log("已清空管理列表并恢复所有节点");
                     });
                     
-                    // 添加折叠菜单按钮
-                    this.addWidget("button", "📌 折叠菜单", null, function() {
+                    const collapseButton = this.addWidget("button", "📌 折叠菜单", null, function() {
                         self.collapseMenu();
                     });
                     
-                    // 存储原始widgets引用（用于折叠/展开恢复）
-                    this.originalWidgets = this.widgets.slice();
+                    // 从widgets数组中移除所有固定按钮，存储到fixedWidgets
+                    this.fixedWidgets = [
+                        addSelectedButton,
+                        refreshButton, 
+                        enableAllButton,
+                        bypassAllButton,
+                        clearButton,
+                        collapseButton
+                    ];
                     
-                    // 更新大小
-                    this.updateSize();
+                    // 移除刚添加的按钮
+                    this.fixedWidgets.forEach(widget => {
+                        const index = this.widgets.indexOf(widget);
+                        if (index > -1) {
+                            this.widgets.splice(index, 1);
+                        }
+                    });
+                    
+                    // 重建widgets显示
+                    this.rebuildWidgets();
                 }, 100);
                 
                 // 自定义节点外观
@@ -389,6 +423,10 @@ app.registerExtension({
                     }
                     o.managedNodes = this.managedNodes;
                     o.isCollapsed = this.isCollapsed; // 保存折叠状态
+                    o.collapsedSize = this.collapsedSize; // 保存折叠尺寸
+                    if (this.expandedSize && Array.isArray(this.expandedSize)) {
+                        o.expandedSize = this.expandedSize; // 保存展开尺寸
+                    }
                 };
                 
                 const onConfigure = this.onConfigure;
@@ -396,21 +434,40 @@ app.registerExtension({
                     if (onConfigure) {
                         onConfigure.apply(this, arguments);
                     }
-                    if (o.managedNodes) {
+                    
+                    // 恢复折叠相关的属性，添加类型检查
+                    if (o.isCollapsed !== undefined) {
+                        this.isCollapsed = o.isCollapsed;
+                    }
+                    if (o.collapsedSize && Array.isArray(o.collapsedSize)) {
+                        this.collapsedSize = o.collapsedSize.slice();
+                    }
+                    if (o.expandedSize && Array.isArray(o.expandedSize)) {
+                        this.expandedSize = o.expandedSize.slice();
+                    }
+                    
+                    if (o.managedNodes && Array.isArray(o.managedNodes)) {
                         this.managedNodes = o.managedNodes;
                         // 重建节点控制widgets
                         setTimeout(() => {
                             o.managedNodes.forEach(nodeId => {
-                                this.addNodeWidget(nodeId);
+                                this.createNodeWidget(nodeId);
                             });
                             this.refreshAllNodeStates();
+                            
+                            // 恢复折叠状态和正确的尺寸
+                            setTimeout(() => {
+                                this.rebuildWidgets();
+                                
+                                // 再次确保折叠状态的尺寸正确
+                                if (this.isCollapsed) {
+                                    setTimeout(() => {
+                                        this.size = this.collapsedSize.slice();
+                                        this.setDirtyCanvas(true, true);
+                                    }, 50);
+                                }
+                            }, 50);
                         }, 200);
-                    }
-                    // 恢复折叠状态
-                    if (o.isCollapsed) {
-                        setTimeout(() => {
-                            this.collapseMenu();
-                        }, 300);
                     }
                 };
             };
@@ -418,4 +475,4 @@ app.registerExtension({
     }
 });
 
-console.log("批量忽略管理器已加载 - 带折叠菜单功能 v4.1");
+console.log("批量忽略管理器已加载 - 带折叠菜单功能 v4.4");
