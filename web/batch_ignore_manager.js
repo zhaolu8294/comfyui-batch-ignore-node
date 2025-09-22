@@ -89,50 +89,155 @@ app.registerExtension({
                 this.isCollapsed = false; // 折叠状态标志
                 this.fixedWidgets = []; // 存储固定的widgets（主控开关等）
                 this.expandButton = null; // 展开按钮引用
-                this.collapsedSize = [210, 80]; // 折叠时的尺寸
-                this.expandedSize = null; // 展开时的尺寸
+                this.collapseButton = null; // 折叠按钮引用
+                this.collapsedHeight = 85; // 折叠时的高度
+                this.isMixedState = false; // 混合状态标志
+                this.savedMixedStates = new Map(); // 保存混合状态时每个节点的状态
+                this.isInAllBypassMode = false; // 是否处于全忽略模式（从混合状态切换而来）
                 
                 // 创建主控开关
                 const masterSwitch = this.addWidget("toggle", "🎛 全部控制 [YES]", true, function(value) {
-                    // 更新显示文本
-                    this.name = value ? "🎛 全部控制 [YES]" : "🎛 全部控制 [NO]";
-                    
-                    // value为true时表示YES(不忽略)，false时表示NO(忽略)
-                    const bypass = !value;
-                    
-                    // 批量更新所有管理的节点
-                    self.managedNodes.forEach(nodeId => {
-                        setNodeBypassState(nodeId, bypass);
-                        
-                        // 同步更新单个节点的开关显示
-                        const widgetData = self.nodeWidgets.get(nodeId);
-                        if (widgetData && widgetData.toggle) {
-                            const nodeName = getNodeName(nodeId);
-                            widgetData.toggle.value = value;
-                            widgetData.toggle.name = value ? `✅ ${nodeName} [YES]` : `⭕ ${nodeName} [NO]`;
+                    if (self.isMixedState) {
+                        // 混合状态下的逻辑：在混合状态和全忽略之间切换
+                        if (self.isInAllBypassMode) {
+                            // 当前是全忽略状态，恢复到保存的混合状态
+                            self.savedMixedStates.forEach((shouldBypass, nodeId) => {
+                                setNodeBypassState(nodeId, shouldBypass);
+                                
+                                // 同步更新单个节点的开关显示
+                                const widgetData = self.nodeWidgets.get(nodeId);
+                                if (widgetData && widgetData.toggle) {
+                                    const nodeName = getNodeName(nodeId);
+                                    widgetData.toggle.value = !shouldBypass;
+                                    widgetData.toggle.name = !shouldBypass ? `✅ ${nodeName} [YES]` : `⭕ ${nodeName} [NO]`;
+                                }
+                            });
+                            self.isInAllBypassMode = false;
+                            console.log("恢复到混合状态");
+                        } else {
+                            // 当前是混合状态，切换到全忽略
+                            self.managedNodes.forEach(nodeId => {
+                                setNodeBypassState(nodeId, true);
+                                
+                                // 同步更新单个节点的开关显示
+                                const widgetData = self.nodeWidgets.get(nodeId);
+                                if (widgetData && widgetData.toggle) {
+                                    const nodeName = getNodeName(nodeId);
+                                    widgetData.toggle.value = false;
+                                    widgetData.toggle.name = `⭕ ${nodeName} [NO]`;
+                                }
+                            });
+                            self.isInAllBypassMode = true;
+                            console.log("从混合状态切换到全忽略");
                         }
-                    });
+                        
+                        // 更新主控开关显示
+                        self.updateMasterSwitchDisplay();
+                    } else {
+                        // 非混合状态下的逻辑：在全开和全忽略之间切换
+                        // 更新显示文本
+                        this.name = value ? "🎛 全部控制 [YES]" : "🎛 全部控制 [NO]";
+                        
+                        // value为true时表示YES(不忽略)，false时表示NO(忽略)
+                        const bypass = !value;
+                        
+                        // 批量更新所有管理的节点
+                        self.managedNodes.forEach(nodeId => {
+                            setNodeBypassState(nodeId, bypass);
+                            
+                            // 同步更新单个节点的开关显示
+                            const widgetData = self.nodeWidgets.get(nodeId);
+                            if (widgetData && widgetData.toggle) {
+                                const nodeName = getNodeName(nodeId);
+                                widgetData.toggle.value = value;
+                                widgetData.toggle.name = value ? `✅ ${nodeName} [YES]` : `⭕ ${nodeName} [NO]`;
+                            }
+                        });
+                        
+                        console.log(`非混合状态：切换到${value ? '全部启用' : '全部忽略'}`);
+                    }
                     
                     app.graph.setDirtyCanvas(true);
                 });
                 this.masterSwitch = masterSwitch; // 存储主控开关引用
                 
-                // 更新节点大小的方法
-                this.updateSize = function(forceSize = null) {
-                    if (forceSize) {
-                        this.size = forceSize.slice(); // 使用副本
-                    } else if (this.isCollapsed) {
-                        this.size = this.collapsedSize.slice(); // 使用副本
+                // 更新主控开关显示的方法
+                this.updateMasterSwitchDisplay = function() {
+                    if (!this.masterSwitch) return;
+                    
+                    if (this.isMixedState) {
+                        if (this.isInAllBypassMode) {
+                            // 混合状态下的全忽略模式
+                            this.masterSwitch.value = false;
+                            this.masterSwitch.name = "🎛 全部控制 [NO]";
+                        } else {
+                            // 混合状态
+                            const enabledCount = this.managedNodes.filter(nodeId => !getNodeBypassState(nodeId)).length;
+                            const bypassedCount = this.managedNodes.length - enabledCount;
+                            this.masterSwitch.value = true; // 混合状态显示为开启
+                            this.masterSwitch.name = `🎛 全部控制 [混合: ${enabledCount}启用/${bypassedCount}忽略]`;
+                        }
                     } else {
-                        // 展开状态，计算实际需要的大小
-                        this.computeSize();
-                        this.expandedSize = this.size.slice(); // 保存展开时的尺寸
+                        // 非混合状态：全开或全关
+                        const allEnabled = this.managedNodes.every(nodeId => !getNodeBypassState(nodeId));
+                        this.masterSwitch.value = allEnabled;
+                        this.masterSwitch.name = allEnabled ? "🎛 全部控制 [YES]" : "🎛 全部控制 [NO]";
                     }
+                };
+                
+                // 保存当前混合状态的方法
+                this.saveMixedStates = function() {
+                    this.savedMixedStates.clear();
+                    this.managedNodes.forEach(nodeId => {
+                        const isBypassed = getNodeBypassState(nodeId);
+                        this.savedMixedStates.set(nodeId, isBypassed);
+                    });
+                    console.log("保存混合状态:", Array.from(this.savedMixedStates.entries()));
+                };
+                
+                // 强制刷新节点显示的方法
+                this.forceRefresh = function() {
+                    // 保持当前宽度
+                    const currentWidth = this.size[0];
+                    
+                    if (this.isCollapsed) {
+                        // 折叠状态：固定高度
+                        this.size = [currentWidth, this.collapsedHeight];
+                    } else {
+                        // 展开状态：重新计算高度
+                        this.computeSize();
+                        this.size[0] = currentWidth; // 恢复宽度
+                    }
+                    
+                    // 多种方式确保节点正确刷新
                     this.setDirtyCanvas(true, true);
+                    
+                    // 强制重新计算和绘制
+                    if (app.canvas) {
+                        app.canvas.setDirty(true, true);
+                    }
+                    
+                    // 请求动画帧更新
+                    requestAnimationFrame(() => {
+                        this.setDirtyCanvas(true, true);
+                        if (app.canvas) {
+                            app.canvas.setDirty(true, true);
+                        }
+                    });
+                };
+                
+                // 创建展开按钮的方法
+                this.createExpandButton = function() {
+                    return this.addWidget("button", "📂 展开菜单", null, function() {
+                        self.expandMenu();
+                    });
                 };
                 
                 // 重建widgets的方法
                 this.rebuildWidgets = function() {
+                    // 保存当前宽度
+                    const currentWidth = this.size[0];
+                    
                     // 清空当前widgets
                     this.widgets = [];
                     
@@ -140,21 +245,37 @@ app.registerExtension({
                     this.widgets.push(this.masterSwitch);
                     
                     if (this.isCollapsed) {
-                        // 折叠状态：只显示主控开关和展开按钮
-                        if (!this.expandButton) {
-                            this.expandButton = this.addWidget("button", "📂 展开菜单", null, function() {
-                                self.expandMenu();
-                            });
-                        }
+                        // 折叠状态：重新创建展开按钮
+                        this.expandButton = this.createExpandButton();
                         this.widgets.push(this.expandButton);
                         
-                        // 设置折叠时的尺寸
-                        this.updateSize(this.collapsedSize);
+                        // 立即设置折叠状态的固定高度和刷新
+                        setTimeout(() => {
+                            this.size = [currentWidth, this.collapsedHeight];
+                            this.setDirtyCanvas(true, true);
+                            if (app.canvas) {
+                                app.canvas.setDirty(true, true);
+                            }
+                        }, 0);
+                        
+                        // 再次确保布局正确
+                        setTimeout(() => {
+                            this.size = [currentWidth, this.collapsedHeight];
+                            this.setDirtyCanvas(true, true);
+                            if (app.canvas) {
+                                app.canvas.setDirty(true, true);
+                            }
+                        }, 50);
                     } else {
-                        // 展开状态：显示所有widgets
+                        // 展开状态：显示所有内容
                         this.expandButton = null;
                         
-                        // 添加所有节点的控制widgets
+                        // 添加所有固定的控制按钮（在节点列表之前）
+                        this.fixedWidgets.forEach(widget => {
+                            this.widgets.push(widget);
+                        });
+                        
+                        // 添加所有节点的控制widgets（显示在最下面）
                         this.managedNodes.forEach(nodeId => {
                             const widgetData = this.nodeWidgets.get(nodeId);
                             if (widgetData) {
@@ -163,22 +284,21 @@ app.registerExtension({
                             }
                         });
                         
-                        // 添加所有固定的控制按钮
-                        this.fixedWidgets.forEach(widget => {
-                            this.widgets.push(widget);
-                        });
-                        
-                        // 计算展开时的尺寸
-                        this.updateSize();
+                        // 重新计算展开状态的高度
+                        setTimeout(() => {
+                            this.computeSize();
+                            this.size[0] = currentWidth; // 保持宽度不变
+                            this.setDirtyCanvas(true, true);
+                            if (app.canvas) {
+                                app.canvas.setDirty(true, true);
+                            }
+                        }, 0);
                     }
                 };
                 
                 // 折叠菜单方法
                 this.collapseMenu = function() {
                     if (this.isCollapsed) return; // 已经折叠
-                    
-                    // 保存当前展开时的尺寸
-                    this.expandedSize = this.size.slice();
                     
                     this.isCollapsed = true;
                     this.rebuildWidgets();
@@ -195,32 +315,62 @@ app.registerExtension({
                 
                 // 更新全局控制状态的方法
                 this.updateMasterSwitch = function() {
+                    if (self.managedNodes.length === 0) {
+                        // 没有管理的节点时，重置为默认状态
+                        this.isMixedState = false;
+                        this.isInAllBypassMode = false;
+                        this.savedMixedStates.clear();
+                        this.updateMasterSwitchDisplay();
+                        return;
+                    }
+                    
                     // 检查所有节点的状态
-                    let allYes = true;
-                    let allNo = true;
+                    let enabledCount = 0;  // 启用的节点数量
+                    let bypassedCount = 0; // 忽略的节点数量
                     
                     self.managedNodes.forEach(nodeId => {
                         const isBypassed = getNodeBypassState(nodeId);
                         if (isBypassed) {
-                            allYes = false;
+                            bypassedCount++;
                         } else {
-                            allNo = false;
+                            enabledCount++;
                         }
                     });
                     
-                    // 根据子节点状态更新主控开关
-                    if (this.masterSwitch) {
-                        if (allYes) {
-                            this.masterSwitch.value = true;
-                            this.masterSwitch.name = "🎛 全部控制 [YES]";
-                        } else if (allNo) {
-                            this.masterSwitch.value = false;
-                            this.masterSwitch.name = "🎛 全部控制 [NO]";
+                    const wasInMixedState = this.isMixedState;
+                    
+                    if (enabledCount === self.managedNodes.length) {
+                        // 全部启用 - 非混合状态
+                        this.isMixedState = false;
+                        this.isInAllBypassMode = false;
+                        this.savedMixedStates.clear();
+                    } else if (bypassedCount === self.managedNodes.length) {
+                        // 全部忽略
+                        if (wasInMixedState && this.savedMixedStates.size > 0) {
+                            // 如果之前是混合状态，保持混合状态标志，标记为全忽略模式
+                            this.isInAllBypassMode = true;
                         } else {
-                            // 混合状态 - 显示为中间状态
-                            this.masterSwitch.name = "🎛 全部控制 [混合]";
+                            // 非混合状态下的全部忽略
+                            this.isMixedState = false;
+                            this.isInAllBypassMode = false;
+                            this.savedMixedStates.clear();
+                        }
+                    } else {
+                        // 混合状态 - 既有启用也有忽略的节点
+                        if (!this.isMixedState) {
+                            // 新进入混合状态，保存当前状态
+                            this.isMixedState = true;
+                            this.isInAllBypassMode = false;
+                            this.saveMixedStates();
+                            console.log(`进入混合状态: ${enabledCount} 个节点启用, ${bypassedCount} 个节点忽略`);
+                        } else {
+                            // 已经在混合状态中，更新保存的状态
+                            this.isInAllBypassMode = false;
+                            this.saveMixedStates();
                         }
                     }
+                    
+                    this.updateMasterSwitchDisplay();
                 };
                 
                 // 添加节点的方法
@@ -243,6 +393,7 @@ app.registerExtension({
                         
                         // 移除对应的widget数据
                         this.nodeWidgets.delete(nodeId);
+                        this.savedMixedStates.delete(nodeId);
                         
                         // 恢复节点状态（设为不忽略）
                         setNodeBypassState(nodeId, false);
@@ -319,7 +470,7 @@ app.registerExtension({
                     });
                     
                     self.updateMasterSwitch();
-                    self.updateSize();
+                    self.forceRefresh();
                 };
                 
                 // 初始化固定按钮
@@ -354,6 +505,10 @@ app.registerExtension({
                         self.managedNodes.forEach(nodeId => {
                             setNodeBypassState(nodeId, false);
                         });
+                        // 清除混合状态
+                        self.isMixedState = false;
+                        self.isInAllBypassMode = false;
+                        self.savedMixedStates.clear();
                         self.refreshAllNodeStates();
                         console.log("已启用所有节点");
                     });
@@ -363,6 +518,10 @@ app.registerExtension({
                         self.managedNodes.forEach(nodeId => {
                             setNodeBypassState(nodeId, true);
                         });
+                        // 清除混合状态
+                        self.isMixedState = false;
+                        self.isInAllBypassMode = false;
+                        self.savedMixedStates.clear();
                         self.refreshAllNodeStates();
                         console.log("已忽略所有节点");
                     });
@@ -375,15 +534,20 @@ app.registerExtension({
                         
                         self.managedNodes = [];
                         self.nodeWidgets.clear();
+                        self.isMixedState = false;
+                        self.isInAllBypassMode = false;
+                        self.savedMixedStates.clear();
                         self.updateMasterSwitch();
                         self.rebuildWidgets();
                         
                         console.log("已清空管理列表并恢复所有节点");
                     });
                     
+                    // 创建折叠按钮
                     const collapseButton = this.addWidget("button", "📌 折叠菜单", null, function() {
                         self.collapseMenu();
                     });
+                    this.collapseButton = collapseButton;
                     
                     // 从widgets数组中移除所有固定按钮，存储到fixedWidgets
                     this.fixedWidgets = [
@@ -423,9 +587,11 @@ app.registerExtension({
                     }
                     o.managedNodes = this.managedNodes;
                     o.isCollapsed = this.isCollapsed; // 保存折叠状态
-                    o.collapsedSize = this.collapsedSize; // 保存折叠尺寸
-                    if (this.expandedSize && Array.isArray(this.expandedSize)) {
-                        o.expandedSize = this.expandedSize; // 保存展开尺寸
+                    o.isMixedState = this.isMixedState; // 保存混合状态
+                    o.isInAllBypassMode = this.isInAllBypassMode; // 保存全忽略模式状态
+                    // 保存混合状态的节点状态
+                    if (this.savedMixedStates.size > 0) {
+                        o.savedMixedStates = Array.from(this.savedMixedStates.entries());
                     }
                 };
                 
@@ -435,15 +601,19 @@ app.registerExtension({
                         onConfigure.apply(this, arguments);
                     }
                     
-                    // 恢复折叠相关的属性，添加类型检查
+                    // 恢复状态
                     if (o.isCollapsed !== undefined) {
                         this.isCollapsed = o.isCollapsed;
                     }
-                    if (o.collapsedSize && Array.isArray(o.collapsedSize)) {
-                        this.collapsedSize = o.collapsedSize.slice();
+                    if (o.isMixedState !== undefined) {
+                        this.isMixedState = o.isMixedState;
                     }
-                    if (o.expandedSize && Array.isArray(o.expandedSize)) {
-                        this.expandedSize = o.expandedSize.slice();
+                    if (o.isInAllBypassMode !== undefined) {
+                        this.isInAllBypassMode = o.isInAllBypassMode;
+                    }
+                    // 恢复保存的混合状态
+                    if (o.savedMixedStates && Array.isArray(o.savedMixedStates)) {
+                        this.savedMixedStates = new Map(o.savedMixedStates);
                     }
                     
                     if (o.managedNodes && Array.isArray(o.managedNodes)) {
@@ -455,17 +625,9 @@ app.registerExtension({
                             });
                             this.refreshAllNodeStates();
                             
-                            // 恢复折叠状态和正确的尺寸
+                            // 恢复折叠状态
                             setTimeout(() => {
                                 this.rebuildWidgets();
-                                
-                                // 再次确保折叠状态的尺寸正确
-                                if (this.isCollapsed) {
-                                    setTimeout(() => {
-                                        this.size = this.collapsedSize.slice();
-                                        this.setDirtyCanvas(true, true);
-                                    }, 50);
-                                }
                             }, 50);
                         }, 200);
                     }
@@ -475,4 +637,4 @@ app.registerExtension({
     }
 });
 
-console.log("批量忽略管理器已加载 - 带折叠菜单功能 v4.4");
+console.log("批量忽略管理器已加载 - 优化主控开关逻辑 v6.1");
