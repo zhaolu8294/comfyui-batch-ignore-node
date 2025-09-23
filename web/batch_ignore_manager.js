@@ -319,6 +319,17 @@ app.registerExtension({
                         this.nodeWidgets.clear();
                         this.resetToDefault();
                         this.updateMasterSwitch();
+    
+                    // 强制更新高度
+                        if (this.isCollapsed) {
+                            this.size[1] = this.collapsedHeight;
+                            } else {
+                   // 计算空列表时的合适高度
+                            const baseHeight = 85; // 基础高度
+                            const buttonAreaHeight = 50; // 按钮区域高度
+                            this.size[1] = baseHeight + buttonAreaHeight;
+                            }
+    
                         this.rebuildWidgets();
                         console.log("已清空管理列表并恢复所有节点");
                     }],
