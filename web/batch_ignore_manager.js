@@ -377,6 +377,8 @@ app.registerExtension({
                             setTimeout(() => this.rebuildWidgets(), 50);
                         }, 200);
                     }
+                   // 新增：更新总控开关的显示
+                   this.updateMasterSwitchDisplay();
                 };
             };
         }
